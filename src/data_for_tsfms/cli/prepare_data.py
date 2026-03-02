@@ -9,7 +9,8 @@ import pandas as pd
 import typer
 from datasets import load_dataset
 from gluonts.dataset.arrow import ArrowWriter
-from typer_config import use_yaml_config
+from typer_config import use_config
+from data_for_tsfms.cli.config_utils import yaml_conf_callback
 
 from data_for_tsfms.split_utils import temporal_split
 
@@ -58,7 +59,7 @@ def convert_to_arrow(
     ArrowWriter(compression=compression).write_to_file(rows, path=path)
 
 
-@use_yaml_config()
+@use_config(yaml_conf_callback)
 def main(
     domain: str = typer.Option(
         ..., "--domain", help="Domain name used for output file names."

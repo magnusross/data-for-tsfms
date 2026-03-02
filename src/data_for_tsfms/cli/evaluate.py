@@ -10,7 +10,8 @@ import numpy as np
 import torch
 import typer
 from gluonts.dataset.arrow import File
-from typer_config import use_yaml_config
+from typer_config import use_config
+from data_for_tsfms.cli.config_utils import yaml_conf_callback
 
 from chronos.chronos2 import Chronos2Model
 
@@ -219,7 +220,7 @@ def evaluate_checkpoint_all_domains(
     return results
 
 
-@use_yaml_config()
+@use_config(yaml_conf_callback)
 def main(
     checkpoint: Path | None = typer.Option(
         None, "--checkpoint", help="Path to model checkpoint directory."

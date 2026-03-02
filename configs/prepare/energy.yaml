@@ -1,3 +1,5 @@
+_base:
+  - configs/base/model.yaml
 domain: energy
 hf_repo: autogluon/chronos_datasets
 datasets:
@@ -8,8 +10,6 @@ freqs:
   - 15min
   - 1H
   - 1H
-context_length: 1024
-prediction_length: 64
 num_rolling_windows: 5
 output_dir: data
 compression: lz4

@@ -1,0 +1,16 @@
+seed: 42
+device: null
+data_dir: data
+local_checkpoint_tmp_root: .tmp_checkpoints
+training_steps: 10000
+batch_size: 32
+learning_rate: 0.001
+weight_decay: 0.01
+warmup_ratio: 0.06
+logging_steps: 1
+save_steps: 500
+dataloader_workers: 0
+eval_batch_size: 128
+mlflow_experiment: negative_transfer_chronos2
+checkpoint_artifact_dir: checkpoints
+keep_local_checkpoints: false

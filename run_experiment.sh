@@ -20,16 +20,16 @@ run_and_capture_id() {
 echo "=== Training transport_only (${STEPS} steps) ==="
 transport_run_id="$(run_and_capture_id configs/train/transport_only.yaml)"
 echo "=== Evaluating transport_only ==="
-uv run tsfms evaluate --config configs/evaluate/transport_only.yaml --mlflow-run-id "${transport_run_id}"
+uv run tsfms evaluate --config configs/evaluate/default.yaml --mlflow-run-id "${transport_run_id}"
 
 echo "=== Training energy_only (${STEPS} steps) ==="
 energy_run_id="$(run_and_capture_id configs/train/energy_only.yaml)"
 echo "=== Evaluating energy_only ==="
-uv run tsfms evaluate --config configs/evaluate/energy_only.yaml --mlflow-run-id "${energy_run_id}"
+uv run tsfms evaluate --config configs/evaluate/default.yaml --mlflow-run-id "${energy_run_id}"
 
 echo "=== Training joint (${STEPS} steps) ==="
 joint_run_id="$(run_and_capture_id configs/train/joint.yaml)"
 echo "=== Evaluating joint ==="
-uv run tsfms evaluate --config configs/evaluate/joint.yaml --mlflow-run-id "${joint_run_id}"
+uv run tsfms evaluate --config configs/evaluate/default.yaml --mlflow-run-id "${joint_run_id}"
 
 echo "Experiment complete. Start MLflow UI with: uv run mlflow ui"

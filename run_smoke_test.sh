@@ -41,7 +41,7 @@ fi
 
 echo "=== Smoke: evaluate from MLflow artifact checkpoint (run_id=${run_id}) ==="
 uv run tsfms evaluate \
-  --config configs/evaluate/transport_only.yaml \
+  --config configs/evaluate/default.yaml \
   --mlflow-run-id "${run_id}" \
   --max-windows 64 \
   --plot-samples-per-domain 2 \
