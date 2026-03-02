@@ -11,6 +11,9 @@ logging_steps: 1
 save_steps: 500
 dataloader_workers: 0
 eval_batch_size: 128
+plot_samples_per_domain: 10
+plot_context_points: 128
+plot_artifact_dir: evaluation_plots
 mlflow_experiment: negative_transfer_chronos2
 checkpoint_artifact_dir: checkpoints
 keep_local_checkpoints: false

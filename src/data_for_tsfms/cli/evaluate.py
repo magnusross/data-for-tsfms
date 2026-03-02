@@ -169,33 +169,45 @@ def _log_forecast_plots(
         )
 
 
-def evaluate_checkpoint_on_domain(
-    checkpoint: Path,
+def evaluate_model_all_domains(
+    model: Chronos2Model,
     data_dir: Path,
-    domain: str,
-    batch_size: int = 128,
-    device: torch.device | None = None,
+    batch_size: int,
+    device: torch.device,
     max_windows: int | None = None,
+    log_plots: bool = False,
+    plot_artifact_dir: str = "evaluation_plots",
+    samples_per_domain: int = 10,
+    context_points: int = 128,
 ) -> dict[str, float]:
-    device = device or _device_from_arg(None)
-    model = Chronos2Model.from_pretrained(checkpoint)
-    model.eval()
-    model.to(device)
-
-    _, labels, quantile_preds, quantiles = _predict_on_domain(
-        model=model,
-        data_dir=data_dir,
-        domain=domain,
-        batch_size=batch_size,
-        device=device,
-        max_windows=max_windows,
-    )
-
-    metrics = _compute_metrics(
-        quantile_preds=quantile_preds, labels=labels, quantiles=quantiles
-    )
-    metrics["num_windows"] = float(labels.shape[0])
-    return metrics
+    results: dict[str, float] = {}
+    for domain in DOMAINS:
+        contexts, labels, quantile_preds, quantiles = _predict_on_domain(
+            model=model,
+            data_dir=data_dir,
+            domain=domain,
+            batch_size=batch_size,
+            device=device,
+            max_windows=max_windows,
+        )
+        metrics = _compute_metrics(
+            quantile_preds=quantile_preds, labels=labels, quantiles=quantiles
+        )
+        metrics["num_windows"] = float(labels.shape[0])
+        for key, value in metrics.items():
+            results[f"{domain}/{key}"] = value
+        if log_plots:
+            _log_forecast_plots(
+                domain=domain,
+                contexts=contexts,
+                labels=labels,
+                quantile_preds=quantile_preds,
+                quantiles=quantiles,
+                mlflow_artifact_dir=plot_artifact_dir,
+                samples_per_domain=samples_per_domain,
+                context_points=context_points,
+            )
+    return results
 
 
 def evaluate_checkpoint_all_domains(
@@ -205,19 +217,17 @@ def evaluate_checkpoint_all_domains(
     device: torch.device | None = None,
     max_windows: int | None = None,
 ) -> dict[str, float]:
-    results: dict[str, float] = {}
-    for domain in DOMAINS:
-        metrics = evaluate_checkpoint_on_domain(
-            checkpoint=checkpoint,
-            data_dir=data_dir,
-            domain=domain,
-            batch_size=batch_size,
-            device=device,
-            max_windows=max_windows,
-        )
-        for key, value in metrics.items():
-            results[f"{domain}/{key}"] = value
-    return results
+    device = device or _device_from_arg(None)
+    model = Chronos2Model.from_pretrained(checkpoint)
+    model.eval()
+    model.to(device)
+    return evaluate_model_all_domains(
+        model=model,
+        data_dir=data_dir,
+        batch_size=batch_size,
+        device=device,
+        max_windows=max_windows,
+    )
 
 
 @use_config(yaml_conf_callback)

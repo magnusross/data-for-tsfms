@@ -22,7 +22,7 @@ from chronos.chronos2 import (
 )
 from chronos.chronos2.dataset import DatasetMode
 from chronos.chronos2.trainer import Chronos2Trainer
-from data_for_tsfms.cli.evaluate import evaluate_checkpoint_all_domains
+from data_for_tsfms.cli.evaluate import evaluate_model_all_domains
 
 QUANTILES = [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
 RUNS = ("transport_only", "energy_only", "joint")
@@ -153,6 +153,9 @@ def main(
     eval_max_windows: int | None = typer.Option(
         None, "--eval-max-windows", help="Limit evaluated windows per domain."
     ),
+    plot_samples_per_domain: int = typer.Option(10, "--plot-samples-per-domain"),
+    plot_context_points: int = typer.Option(128, "--plot-context-points"),
+    plot_artifact_dir: str = typer.Option("evaluation_plots", "--plot-artifact-dir"),
     mlflow_experiment: str = typer.Option(
         "negative_transfer_chronos2", "--mlflow-experiment"
     ),
@@ -275,12 +278,18 @@ def main(
         )
         mlflow.log_param("final_checkpoint_uri", final_checkpoint_uri)
 
-        eval_metrics = evaluate_checkpoint_all_domains(
-            checkpoint=final_dir,
+        model.eval()
+        eval_device = next(model.parameters()).device
+        eval_metrics = evaluate_model_all_domains(
+            model=model,
             data_dir=data_dir,
             batch_size=eval_batch_size,
-            device=torch.device(device) if device else None,
+            device=eval_device,
             max_windows=eval_max_windows,
+            log_plots=True,
+            plot_artifact_dir=plot_artifact_dir,
+            samples_per_domain=plot_samples_per_domain,
+            context_points=plot_context_points,
         )
         mlflow.log_metrics(eval_metrics)
 
