@@ -1,0 +1,15 @@
+domain: energy
+hf_repo: autogluon/chronos_datasets
+datasets:
+  - electricity_15min
+  - solar_1h
+  - wind_farms_hourly
+freqs:
+  - 15min
+  - 1H
+  - 1H
+context_length: 2048
+prediction_length: 64
+num_rolling_windows: 5
+output_dir: data
+compression: lz4

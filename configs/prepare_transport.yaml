@@ -1,0 +1,15 @@
+domain: transport
+hf_repo: autogluon/chronos_datasets
+datasets:
+  - monash_traffic
+  - taxi_30min
+  - uber_tlc_hourly
+freqs:
+  - 1H
+  - 30min
+  - 1H
+context_length: 2048
+prediction_length: 64
+num_rolling_windows: 5
+output_dir: data
+compression: lz4

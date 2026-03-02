@@ -1,0 +1,6 @@
+checkpoint: checkpoints/transport_only/final
+domain: both
+data_dir: data
+batch_size: 128
+device: null
+mlflow_run_id: null
