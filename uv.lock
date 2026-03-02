@@ -523,12 +523,13 @@ wheels = [
 [[package]]
 name = "data-for-tsfms"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "accelerate" },
     { name = "chronos-forecasting" },
     { name = "datasets" },
     { name = "gluonts", extra = ["arrow"] },
+    { name = "matplotlib" },
     { name = "mlflow" },
     { name = "pyarrow" },
     { name = "pyyaml" },
@@ -543,6 +544,7 @@ requires-dist = [
     { name = "chronos-forecasting", specifier = ">=2.2.2" },
     { name = "datasets", specifier = ">=4.6.1" },
     { name = "gluonts", extras = ["arrow"], specifier = ">=0.16.2" },
+    { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "mlflow", specifier = ">=3.10.0" },
     { name = "pyarrow", specifier = ">=23.0.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },

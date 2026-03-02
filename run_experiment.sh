@@ -3,22 +3,33 @@ set -euo pipefail
 
 STEPS="${1:-50000}"
 
-uv run python data/prepare_data.py --config configs/prepare_energy.yaml
-uv run python data/prepare_data.py --config configs/prepare_transport.yaml
+uv run tsfms prepare --config configs/prepare/energy.yaml
+uv run tsfms prepare --config configs/prepare/transport.yaml
+
+run_and_capture_id() {
+	local train_config="$1"
+	local run_id
+	run_id=$(uv run tsfms train --config "$train_config" --training-steps "${STEPS}" | tee /dev/stderr | awk '/MLflow run_id:/ {print $3}' | tail -n1)
+	if [[ -z "${run_id}" ]]; then
+		echo "Failed to capture MLflow run_id from training output" >&2
+		exit 1
+	fi
+	echo "${run_id}"
+}
 
 echo "=== Training transport_only (${STEPS} steps) ==="
-uv run python train.py --config configs/train_transport_only.yaml --training-steps "${STEPS}"
+transport_run_id="$(run_and_capture_id configs/train/transport_only.yaml)"
 echo "=== Evaluating transport_only ==="
-uv run python evaluate.py --config configs/evaluate.yaml --checkpoint checkpoints/transport_only/final
+uv run tsfms evaluate --config configs/evaluate/transport_only.yaml --mlflow-run-id "${transport_run_id}"
 
 echo "=== Training energy_only (${STEPS} steps) ==="
-uv run python train.py --config configs/train_energy_only.yaml --training-steps "${STEPS}"
+energy_run_id="$(run_and_capture_id configs/train/energy_only.yaml)"
 echo "=== Evaluating energy_only ==="
-uv run python evaluate.py --config configs/evaluate.yaml --checkpoint checkpoints/energy_only/final
+uv run tsfms evaluate --config configs/evaluate/energy_only.yaml --mlflow-run-id "${energy_run_id}"
 
 echo "=== Training joint (${STEPS} steps) ==="
-uv run python train.py --config configs/train_joint.yaml --training-steps "${STEPS}"
+joint_run_id="$(run_and_capture_id configs/train/joint.yaml)"
 echo "=== Evaluating joint ==="
-uv run python evaluate.py --config configs/evaluate.yaml --checkpoint checkpoints/joint/final
+uv run tsfms evaluate --config configs/evaluate/joint.yaml --mlflow-run-id "${joint_run_id}"
 
 echo "Experiment complete. Start MLflow UI with: uv run mlflow ui"

@@ -219,3 +219,4 @@ __marimo__/
 *.arrow
 checkpoints
 mlflow.db
+mlruns

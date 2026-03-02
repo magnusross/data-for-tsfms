@@ -26,12 +26,6 @@ def temporal_split(
     prediction_length: int = 64,
     num_rolling_windows: int = 5,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
-    """Return (train_row, test_rows) with strict temporal separation.
-
-    The train target is the historical prefix up to T-H, where
-    H = num_rolling_windows * prediction_length. Test rows are rolling windows
-    of length context_length + prediction_length carved from the final H tail.
-    """
     ts = np.asarray(ts, dtype=np.float32)
     heldout_horizon = num_rolling_windows * prediction_length
 

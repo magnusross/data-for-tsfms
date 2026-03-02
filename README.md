@@ -13,15 +13,36 @@ This project runs a controlled negative-transfer experiment with three Chronos-2
 
 Dependencies are managed with `uv` and already recorded in `pyproject.toml`.
 
-CLI configuration is handled with `typer-config` and YAML files in `configs/`.
+CLI configuration is handled with `typer-config` and YAML files in:
+
+- `configs/prepare/`
+- `configs/train/`
+- `configs/evaluate/`
+
+Project layout:
+
+- Source code: `src/data_for_tsfms/`
+- Data artifacts only: `data/*.arrow`
+
+Install package and expose CLI endpoints:
+
+```bash
+uv sync
+```
+
+Available commands:
+
+- `uv run tsfms prepare`
+- `uv run tsfms train`
+- `uv run tsfms evaluate`
 
 ## Data preparation
 
 Prepare Arrow train/test files with strict temporal holdout and no leakage:
 
 ```bash
-uv run python data/prepare_data.py --config configs/prepare_energy.yaml
-uv run python data/prepare_data.py --config configs/prepare_transport.yaml
+uv run tsfms prepare --config configs/prepare/energy.yaml
+uv run tsfms prepare --config configs/prepare/transport.yaml
 ```
 
 Outputs:
@@ -39,7 +60,7 @@ Outputs:
 ## Train one run
 
 ```bash
-uv run python train.py --config configs/train_transport_only.yaml --training-steps 500
+uv run tsfms train --config configs/train/transport_only.yaml --training-steps 500
 ```
 
 Run names: `transport_only`, `energy_only`, `joint`.
@@ -51,11 +72,13 @@ Training logs:
 
 Experiment name defaults to `negative_transfer_chronos2`.
 
-## Evaluate checkpoint
+## Evaluate checkpoint from MLflow artifacts
 
 ```bash
-uv run python evaluate.py --config configs/evaluate.yaml --checkpoint checkpoints/transport_only/final
+uv run tsfms evaluate --config configs/evaluate/transport_only.yaml --mlflow-run-id <RUN_ID>
 ```
+
+`tsfms train` logs all checkpoints as MLflow artifacts under `checkpoints/`, and logs the final checkpoint URI as run param `final_checkpoint_uri`.
 
 ## Full experiment script
 
@@ -75,16 +98,36 @@ The script runs:
 
 ```bash
 uv run python -c "from chronos.chronos2 import Chronos2Model; print('ok')"
-uv run python train.py --config configs/train_transport_only.yaml --training-steps 500 --batch-size 8
+uv run tsfms train --config configs/train/transport_only.yaml --training-steps 500 --batch-size 8
 uv run mlflow ui
 ```
 
 ## Smoke test (config + override)
 
-Run a minimal training smoke test that proves YAML config loading works and that CLI args override YAML values:
+Run a dedicated smoke script that verifies:
+
+- config loading
+- minimal training
+- checkpoint logging to MLflow artifacts
+- evaluation loading from artifact checkpoint
+- evaluation plot artifact logging
 
 ```bash
-uv run python train.py --config configs/train_transport_only.yaml --training-steps 50 --batch-size 8
+chmod +x run_smoke_test.sh
+./run_smoke_test.sh 5 8
 ```
 
-In this command, `--training-steps 50` and `--batch-size 8` override the values in `configs/train_transport_only.yaml`.
+Arguments are optional:
+
+- first arg = training steps (default `5`)
+- second arg = batch size (default `8`)
+
+The script expects prepared Arrow files in `data/`. If missing, it prints the prep commands.
+
+You can still run a direct override check with:
+
+```bash
+uv run tsfms train --config configs/train/transport_only.yaml --training-steps 50 --batch-size 8
+```
+
+In this command, `--training-steps 50` and `--batch-size 8` override the values in `configs/train/transport_only.yaml`.

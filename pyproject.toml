@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling>=1.27.0"]
+build-backend = "hatchling.build"
+
 [project]
 name = "data-for-tsfms"
 version = "0.1.0"
@@ -9,6 +13,7 @@ dependencies = [
     "chronos-forecasting>=2.2.2",
     "datasets>=4.6.1",
     "gluonts[arrow]>=0.16.2",
+    "matplotlib>=3.10.7",
     "mlflow>=3.10.0",
     "pyarrow>=23.0.1",
     "pyyaml>=6.0.3",
@@ -16,3 +21,9 @@ dependencies = [
     "typer>=0.24.1",
     "typer-config>=1.5.1",
 ]
+
+[project.scripts]
+tsfms = "data_for_tsfms.cli.app:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/data_for_tsfms"]

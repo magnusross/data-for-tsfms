@@ -1,0 +1,10 @@
+checkpoint: null
+checkpoint_artifact_path: checkpoints/final
+domain: both
+data_dir: data
+batch_size: 128
+device: null
+mlflow_run_id: null
+plot_samples_per_domain: 3
+plot_context_points: 128
+plot_artifact_dir: evaluation_plots
