@@ -3,7 +3,7 @@ data_dir: data
 local_checkpoint_tmp_root: .tmp_checkpoints
 seed: 42
 device: null
-training_steps: 50000
+training_steps: 10000
 batch_size: 32
 learning_rate: 0.001
 weight_decay: 0.01

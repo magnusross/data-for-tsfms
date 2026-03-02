@@ -218,5 +218,6 @@ __marimo__/
 *.parquet
 *.arrow
 checkpoints
-mlflow.db
+mlflow.db*
 mlruns
+.tmp_checkpoints
