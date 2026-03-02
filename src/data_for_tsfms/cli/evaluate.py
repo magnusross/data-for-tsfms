@@ -59,38 +59,39 @@ def _resolve_checkpoint(
     return Path(local_path)
 
 
-def _predict_on_domain(
+def _predict_on_dataset(
     model: Chronos2Model,
     hf_repo: str,
-    dataset_configs: list[str],
-    prediction_length: int,
+    dataset_config: str,
+    horizon: int,
+    seasonality: int,
     batch_size: int,
     device: torch.device,
     num_windows: int,
-    max_windows: int | None = None,
+    max_windows: int | None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     context_length = model.chronos_config.context_length
+    task = fev.Task(
+        dataset_path=hf_repo,
+        dataset_config=dataset_config,
+        horizon=horizon,
+        num_windows=num_windows,
+        seasonality=seasonality,
+    )
+    col = task.target_columns[0]
+
     all_contexts: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
-
-    for config_name in dataset_configs:
-        task = fev.Task(
-            dataset_path=hf_repo,
-            dataset_config=config_name,
-            horizon=prediction_length,
-            num_windows=num_windows,
-        )
-        target_col = task.target_columns[0]
-        for window in task.iter_windows():
-            past_data, _ = window.get_input_data()
-            ground_truth = window.get_ground_truth()
-            for ts_past, ts_gt in zip(past_data, ground_truth):
-                ctx = np.asarray(ts_past[target_col], dtype=np.float32)
-                lbl = np.asarray(ts_gt[target_col], dtype=np.float32)
-                if len(ctx) < context_length:
-                    continue
-                all_contexts.append(ctx[-context_length:])
-                all_labels.append(lbl[:prediction_length])
+    for window in task.iter_windows():
+        past_data, _ = window.get_input_data()
+        ground_truth = window.get_ground_truth()
+        for ts_past, ts_gt in zip(past_data, ground_truth):
+            ctx = np.asarray(ts_past[col], dtype=np.float32)
+            lbl = np.asarray(ts_gt[col], dtype=np.float32)
+            if len(ctx) < context_length:
+                continue
+            all_contexts.append(ctx[-context_length:])
+            all_labels.append(lbl[:horizon])
 
     contexts = np.stack(all_contexts)
     labels = np.stack(all_labels)
@@ -102,7 +103,7 @@ def _predict_on_domain(
         labels = labels[:max_windows]
 
     output_patch_size = model.chronos_config.output_patch_size
-    num_output_patches = math.ceil(prediction_length / output_patch_size)
+    num_output_patches = math.ceil(horizon / output_patch_size)
 
     preds: list[np.ndarray] = []
     with torch.inference_mode():
@@ -111,12 +112,55 @@ def _predict_on_domain(
                 device
             )
             out = model(context=batch_context, num_output_patches=num_output_patches)
-            pred = out.quantile_preds[..., :prediction_length].detach().cpu().numpy()
+            pred = out.quantile_preds[..., :horizon].detach().cpu().numpy()
             preds.append(pred)
 
     quantile_preds = np.concatenate(preds, axis=0)
     quantiles = np.asarray(model.chronos_config.quantiles, dtype=np.float32)
     return contexts, labels, quantile_preds, quantiles
+
+
+def _predict_on_domain(
+    model: Chronos2Model,
+    hf_repo: str,
+    dataset_configs: list[str],
+    dataset_horizons: list[int],
+    dataset_seasonalities: list[int],
+    batch_size: int,
+    device: torch.device,
+    num_windows: int,
+    max_windows: int | None = None,
+) -> tuple[dict[str, float], np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Returns (metrics, contexts, labels, quantile_preds, quantiles).
+
+    metrics are weighted-averaged across datasets (by number of windows).
+    The raw arrays are from the first dataset, used for plotting.
+    """
+    quantiles = np.asarray(model.chronos_config.quantiles, dtype=np.float32)
+    total_windows = 0
+    weighted: dict[str, float] = {"crps": 0.0, "mae": 0.0, "rmse": 0.0}
+    first_contexts = first_labels = first_qpreds = None
+
+    for cfg, horizon, seasonality in zip(
+        dataset_configs, dataset_horizons, dataset_seasonalities
+    ):
+        contexts, labels, qpreds, _ = _predict_on_dataset(
+            model, hf_repo, cfg, horizon, seasonality,
+            batch_size, device, num_windows, max_windows,
+        )
+        n = labels.shape[0]
+        m = _compute_metrics(qpreds, labels, quantiles)
+        for k in weighted:
+            weighted[k] += m[k] * n
+        total_windows += n
+        if first_contexts is None:
+            first_contexts, first_labels, first_qpreds = contexts, labels, qpreds
+
+    for k in weighted:
+        weighted[k] /= total_windows
+    weighted["num_windows"] = float(total_windows)
+
+    return weighted, first_contexts, first_labels, first_qpreds, quantiles
 
 
 def _log_forecast_plots(
@@ -187,8 +231,11 @@ def evaluate_model_all_domains(
     model: Chronos2Model,
     hf_repo: str,
     transport_datasets: list[str],
+    transport_dataset_horizons: list[int],
+    transport_dataset_seasonalities: list[int],
     energy_datasets: list[str],
-    prediction_length: int,
+    energy_dataset_horizons: list[int],
+    energy_dataset_seasonalities: list[int],
     batch_size: int,
     device: torch.device,
     num_rolling_windows: int = 5,
@@ -198,23 +245,24 @@ def evaluate_model_all_domains(
     samples_per_domain: int = 10,
     context_points: int = 128,
 ) -> dict[str, float]:
-    domain_datasets = {"transport": transport_datasets, "energy": energy_datasets}
+    domain_configs = {
+        "transport": (transport_datasets, transport_dataset_horizons, transport_dataset_seasonalities),
+        "energy": (energy_datasets, energy_dataset_horizons, energy_dataset_seasonalities),
+    }
     results: dict[str, float] = {}
     for domain in DOMAINS:
-        contexts, labels, quantile_preds, quantiles = _predict_on_domain(
+        configs, horizons, seasonalities = domain_configs[domain]
+        metrics, contexts, labels, qpreds, quantiles = _predict_on_domain(
             model=model,
             hf_repo=hf_repo,
-            dataset_configs=domain_datasets[domain],
-            prediction_length=prediction_length,
+            dataset_configs=configs,
+            dataset_horizons=horizons,
+            dataset_seasonalities=seasonalities,
             batch_size=batch_size,
             device=device,
             num_windows=num_rolling_windows,
             max_windows=max_windows,
         )
-        metrics = _compute_metrics(
-            quantile_preds=quantile_preds, labels=labels, quantiles=quantiles
-        )
-        metrics["num_windows"] = float(labels.shape[0])
         for key, value in metrics.items():
             results[f"{domain}/{key}"] = value
         if log_plots:
@@ -222,7 +270,7 @@ def evaluate_model_all_domains(
                 domain=domain,
                 contexts=contexts,
                 labels=labels,
-                quantile_preds=quantile_preds,
+                quantile_preds=qpreds,
                 quantiles=quantiles,
                 mlflow_artifact_dir=plot_artifact_dir,
                 samples_per_domain=samples_per_domain,
@@ -235,8 +283,11 @@ def evaluate_checkpoint_all_domains(
     checkpoint: Path,
     hf_repo: str,
     transport_datasets: list[str],
+    transport_dataset_horizons: list[int],
+    transport_dataset_seasonalities: list[int],
     energy_datasets: list[str],
-    prediction_length: int,
+    energy_dataset_horizons: list[int],
+    energy_dataset_seasonalities: list[int],
     batch_size: int,
     device: torch.device | None = None,
     num_rolling_windows: int = 5,
@@ -250,8 +301,11 @@ def evaluate_checkpoint_all_domains(
         model=model,
         hf_repo=hf_repo,
         transport_datasets=transport_datasets,
+        transport_dataset_horizons=transport_dataset_horizons,
+        transport_dataset_seasonalities=transport_dataset_seasonalities,
         energy_datasets=energy_datasets,
-        prediction_length=prediction_length,
+        energy_dataset_horizons=energy_dataset_horizons,
+        energy_dataset_seasonalities=energy_dataset_seasonalities,
         batch_size=batch_size,
         device=device,
         num_rolling_windows=num_rolling_windows,
@@ -271,9 +325,12 @@ def main(
     ),
     hf_repo: str = typer.Option("autogluon/chronos_datasets", "--hf-repo"),
     transport_datasets: list[str] = typer.Option([], "--transport-datasets"),
+    transport_dataset_horizons: list[int] = typer.Option([], "--transport-dataset-horizons"),
+    transport_dataset_seasonalities: list[int] = typer.Option([], "--transport-dataset-seasonalities"),
     energy_datasets: list[str] = typer.Option([], "--energy-datasets"),
+    energy_dataset_horizons: list[int] = typer.Option([], "--energy-dataset-horizons"),
+    energy_dataset_seasonalities: list[int] = typer.Option([], "--energy-dataset-seasonalities"),
     num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
-    prediction_length: int = typer.Option(64, "--prediction-length"),
     batch_size: int = typer.Option(128, "--batch-size"),
     device: str | None = typer.Option(None, "--device"),
     mlflow_run_id: str | None = typer.Option(None, "--mlflow-run-id"),
@@ -295,29 +352,27 @@ def main(
     model.eval()
     model.to(device_obj)
 
+    domain_configs = {
+        "transport": (transport_datasets, transport_dataset_horizons, transport_dataset_seasonalities),
+        "energy": (energy_datasets, energy_dataset_horizons, energy_dataset_seasonalities),
+    }
     all_metrics: dict[str, float] = {}
 
     active_run = mlflow.start_run(run_id=mlflow_run_id) if mlflow_run_id else None
     try:
-        domain_datasets = {"transport": transport_datasets, "energy": energy_datasets}
         for domain in DOMAINS:
-            contexts, labels, quantile_preds, quantiles = _predict_on_domain(
+            configs, horizons, seasonalities = domain_configs[domain]
+            metrics, contexts, labels, qpreds, quantiles = _predict_on_domain(
                 model=model,
                 hf_repo=hf_repo,
-                dataset_configs=domain_datasets[domain],
-                prediction_length=prediction_length,
+                dataset_configs=configs,
+                dataset_horizons=horizons,
+                dataset_seasonalities=seasonalities,
                 batch_size=batch_size,
                 device=device_obj,
                 num_windows=num_rolling_windows,
                 max_windows=max_windows,
             )
-            metrics = _compute_metrics(
-                quantile_preds=quantile_preds,
-                labels=labels,
-                quantiles=quantiles,
-            )
-            metrics["num_windows"] = float(labels.shape[0])
-
             print(
                 f"{domain} -> "
                 + ", ".join(f"{k}={v:.6f}" for k, v in metrics.items())
@@ -330,7 +385,7 @@ def main(
                     domain=domain,
                     contexts=contexts,
                     labels=labels,
-                    quantile_preds=quantile_preds,
+                    quantile_preds=qpreds,
                     quantiles=quantiles,
                     mlflow_artifact_dir=plot_artifact_dir,
                     samples_per_domain=plot_samples_per_domain,

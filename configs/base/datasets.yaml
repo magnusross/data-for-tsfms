@@ -2,9 +2,16 @@ hf_repo: autogluon/chronos_datasets
 num_rolling_windows: 5
 transport_datasets:
   - monash_traffic
-  - taxi_30min
-  - uber_tlc_hourly
+transport_dataset_horizons:
+  - 24
+transport_dataset_seasonalities:
+  - 24
 energy_datasets:
-  - electricity_15min
-  - solar_1h
-  - wind_farms_hourly
+  - monash_australian_electricity
+  - ercot
+energy_dataset_horizons:
+  - 48
+  - 24
+energy_dataset_seasonalities:
+  - 48
+  - 24

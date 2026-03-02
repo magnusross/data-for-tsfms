@@ -45,30 +45,22 @@ def _set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _extract_target(row: dict) -> np.ndarray | None:
-    for key in ("target", "consumption_kW", "power_mw"):
-        if key in row:
-            arr = np.asarray(row[key], dtype=np.float32)
-            return arr if arr.ndim == 1 else None
-    return None
-
-
 def _load_hf_train_data(
     hf_repo: str,
     dataset_configs: list[str],
+    dataset_horizons: list[int],
     context_length: int,
-    prediction_length: int,
     num_rolling_windows: int,
 ) -> list[dict[str, np.ndarray]]:
-    heldout = num_rolling_windows * prediction_length
     rows = []
-    for config_name in dataset_configs:
+    for config_name, horizon in zip(dataset_configs, dataset_horizons):
+        heldout = num_rolling_windows * horizon
         ds = load_dataset(hf_repo, config_name, split="train")
         for row in ds:
-            target = _extract_target(row)
-            if target is None or len(target) < context_length + heldout:
+            arr = np.asarray(row["target"], dtype=np.float32)
+            if arr.ndim != 1 or len(arr) < context_length + heldout:
                 continue
-            rows.append({"target": target[:-heldout]})
+            rows.append({"target": arr[:-heldout]})
     return rows
 
 
@@ -91,17 +83,18 @@ def _build_inputs(
     run_name: str,
     hf_repo: str,
     transport_datasets: list[str],
+    transport_dataset_horizons: list[int],
     energy_datasets: list[str],
+    energy_dataset_horizons: list[int],
     context_length: int,
-    prediction_length: int,
     num_rolling_windows: int,
     seed: int,
 ) -> list[dict[str, np.ndarray]]:
     transport = _load_hf_train_data(
-        hf_repo, transport_datasets, context_length, prediction_length, num_rolling_windows
+        hf_repo, transport_datasets, transport_dataset_horizons, context_length, num_rolling_windows
     )
     energy = _load_hf_train_data(
-        hf_repo, energy_datasets, context_length, prediction_length, num_rolling_windows
+        hf_repo, energy_datasets, energy_dataset_horizons, context_length, num_rolling_windows
     )
 
     if run_name == "transport_only":
@@ -166,7 +159,11 @@ def main(
     run_name: str = typer.Option(..., "--run-name"),
     hf_repo: str = typer.Option("autogluon/chronos_datasets", "--hf-repo"),
     transport_datasets: list[str] = typer.Option([], "--transport-datasets"),
+    transport_dataset_horizons: list[int] = typer.Option([], "--transport-dataset-horizons"),
+    transport_dataset_seasonalities: list[int] = typer.Option([], "--transport-dataset-seasonalities"),
     energy_datasets: list[str] = typer.Option([], "--energy-datasets"),
+    energy_dataset_horizons: list[int] = typer.Option([], "--energy-dataset-horizons"),
+    energy_dataset_seasonalities: list[int] = typer.Option([], "--energy-dataset-seasonalities"),
     num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
     local_checkpoint_tmp_root: Path = typer.Option(
         Path(".tmp_checkpoints"), "--local-checkpoint-tmp-root"
@@ -224,9 +221,10 @@ def main(
         run_name=run_name,
         hf_repo=hf_repo,
         transport_datasets=transport_datasets,
+        transport_dataset_horizons=transport_dataset_horizons,
         energy_datasets=energy_datasets,
+        energy_dataset_horizons=energy_dataset_horizons,
         context_length=context_length,
-        prediction_length=prediction_length,
         num_rolling_windows=num_rolling_windows,
         seed=seed,
     )
@@ -295,7 +293,6 @@ def main(
                 "weight_decay": weight_decay,
                 "warmup_ratio": warmup_ratio,
                 "context_length": context_length,
-                "prediction_length": prediction_length,
                 "output_patch_size": output_patch_size,
                 "datasets": run_name,
             }
@@ -325,8 +322,11 @@ def main(
             model=model,
             hf_repo=hf_repo,
             transport_datasets=transport_datasets,
+            transport_dataset_horizons=transport_dataset_horizons,
+            transport_dataset_seasonalities=transport_dataset_seasonalities,
             energy_datasets=energy_datasets,
-            prediction_length=prediction_length,
+            energy_dataset_horizons=energy_dataset_horizons,
+            energy_dataset_seasonalities=energy_dataset_seasonalities,
             batch_size=eval_batch_size,
             device=eval_device,
             num_rolling_windows=num_rolling_windows,
