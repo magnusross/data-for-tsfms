@@ -10,7 +10,7 @@ import typer
 from datasets import load_dataset
 from gluonts.dataset.arrow import ArrowWriter
 from typer_config import use_config
-from data_for_tsfms.cli.config_utils import yaml_conf_callback
+from data_for_tsfms.config_utils import yaml_conf_callback
 
 from data_for_tsfms.split_utils import temporal_split
 

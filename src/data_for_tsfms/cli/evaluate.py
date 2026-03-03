@@ -11,7 +11,7 @@ import torch
 import typer
 from gluonts.dataset.arrow import File
 from typer_config import use_config
-from data_for_tsfms.cli.config_utils import yaml_conf_callback
+from data_for_tsfms.config_utils import yaml_conf_callback
 
 from chronos.chronos2 import Chronos2Model
 
