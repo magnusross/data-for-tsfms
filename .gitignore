@@ -222,3 +222,4 @@ mlflow.db*
 mlruns
 .tmp_checkpoints
 .hf_cache
+plots
