@@ -9,9 +9,9 @@ import mlflow
 import numpy as np
 import torch
 import typer
-from datasets import load_dataset
 from typer_config import use_config
 from data_for_tsfms.cli.config_utils import yaml_conf_callback
+from data_for_tsfms.cli.hf_utils import load_target_series_cached
 from transformers import TrainerCallback, TrainingArguments
 
 from chronos.chronos2 import (
@@ -26,7 +26,6 @@ from data_for_tsfms.cli.evaluate import evaluate_model_all_domains
 
 QUANTILES = [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
 RUNS = ("transport_only", "energy_only", "joint")
-_TARGET_KEYS = ("target", "consumption_kW", "power_mw")
 
 
 class MlflowTrainLossCallback(TrainerCallback):
@@ -46,31 +45,21 @@ def _set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _get_target(row: dict) -> np.ndarray:
-    for key in _TARGET_KEYS:
-        if key in row:
-            return np.asarray(row[key], dtype=np.float32)
-    raise KeyError(
-        f"Could not find target field in row keys={sorted(row.keys())}. "
-        f"Expected one of {_TARGET_KEYS}."
-    )
-
 
 def _load_hf_train_inputs(
     hf_repo: str,
     dataset_names: list[str],
     prediction_length: int,
     num_rolling_windows: int,
+    cache_dir: Path,
 ) -> list[dict[str, np.ndarray]]:
     heldout = num_rolling_windows * prediction_length
     rows = []
     for config_name in dataset_names:
-        split = load_dataset(hf_repo, config_name, split="train")
-        for row in split:
-            ts = _get_target(row)
-            if len(ts) <= heldout:
+        for ts in load_target_series_cached(hf_repo, config_name, cache_dir):
+            if ts.shape[-1] <= heldout:
                 continue
-            rows.append({"target": ts[:-heldout]})
+            rows.append({"target": ts[..., :-heldout]})
     return rows
 
 
@@ -96,13 +85,14 @@ def _build_inputs(
     energy_datasets: list[str],
     prediction_length: int,
     num_rolling_windows: int,
+    cache_dir: Path,
     seed: int,
 ) -> list[dict[str, np.ndarray]]:
     transport = _load_hf_train_inputs(
-        hf_repo, transport_datasets, prediction_length, num_rolling_windows
+        hf_repo, transport_datasets, prediction_length, num_rolling_windows, cache_dir
     )
     energy = _load_hf_train_inputs(
-        hf_repo, energy_datasets, prediction_length, num_rolling_windows
+        hf_repo, energy_datasets, prediction_length, num_rolling_windows, cache_dir
     )
 
     if run_name == "transport_only":

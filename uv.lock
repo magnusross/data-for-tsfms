@@ -528,10 +528,8 @@ dependencies = [
     { name = "accelerate" },
     { name = "chronos-forecasting" },
     { name = "datasets" },
-    { name = "gluonts", extra = ["arrow"] },
     { name = "matplotlib" },
     { name = "mlflow" },
-    { name = "pyarrow" },
     { name = "pyyaml" },
     { name = "torch" },
     { name = "typer" },
@@ -543,10 +541,8 @@ requires-dist = [
     { name = "accelerate", specifier = ">=1.12.0" },
     { name = "chronos-forecasting", specifier = ">=2.2.2" },
     { name = "datasets", specifier = ">=4.6.1" },
-    { name = "gluonts", extras = ["arrow"], specifier = ">=0.16.2" },
     { name = "matplotlib", specifier = ">=3.10.7" },
     { name = "mlflow", specifier = ">=3.10.0" },
-    { name = "pyarrow", specifier = ">=23.0.1" },
     { name = "pyyaml", specifier = ">=6.0.3" },
     { name = "torch", specifier = ">=2.10.0" },
     { name = "typer", specifier = ">=0.24.1" },
@@ -845,28 +841,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/df/b5/59d16470a1f0dfe8c793f9ef56fd3826093fc52b3bd96d6b9d6c26c7e27b/gitpython-3.1.46.tar.gz", hash = "sha256:400124c7d0ef4ea03f7310ac2fbf7151e09ff97f2a3288d64a440c584a29c37f", size = 215371, upload-time = "2026-01-01T15:37:32.073Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/6a/09/e21df6aef1e1ffc0c816f0522ddc3f6dcded766c3261813131c78a704470/gitpython-3.1.46-py3-none-any.whl", hash = "sha256:79812ed143d9d25b6d176a10bb511de0f9c67b1fa641d82097b0ab90398a2058", size = 208620, upload-time = "2026-01-01T15:37:30.574Z" },
-]
-
-[[package]]
-name = "gluonts"
-version = "0.16.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "pydantic" },
-    { name = "toolz" },
-    { name = "tqdm" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/95/8e/ac06012148ea68b301d8f041d3c97cca6b5000f58c8ebf94bf71a601f771/gluonts-0.16.2.tar.gz", hash = "sha256:1fef7fff186b567edf9db7cd052c10ee82fb74bb4b4914b925340ba33d494548", size = 1317671, upload-time = "2025-06-27T12:02:33.863Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/3d/83cbe565f59b1d55b6436576d8d7bc3890aebdd8a55db34e60ff69f8e8ef/gluonts-0.16.2-py3-none-any.whl", hash = "sha256:351497c37bd0dd13776310f132b7f110f45821559cbc1a03c24908051fcf8155", size = 1519207, upload-time = "2025-06-27T12:02:32.058Z" },
-]
-
-[package.optional-dependencies]
-arrow = [
-    { name = "pyarrow" },
 ]
 
 [[package]]
@@ -2734,15 +2708,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/fd/18/a545c4ea42af3df6effd7d13d250ba77a0a86fb20393143bbb9a92e434d4/tokenizers-0.22.2-cp39-abi3-win32.whl", hash = "sha256:a6bf3f88c554a2b653af81f3204491c818ae2ac6fbc09e76ef4773351292bc92", size = 2502363, upload-time = "2026-01-05T10:45:20.593Z" },
     { url = "https://files.pythonhosted.org/packages/65/71/0670843133a43d43070abeb1949abfdef12a86d490bea9cd9e18e37c5ff7/tokenizers-0.22.2-cp39-abi3-win_amd64.whl", hash = "sha256:c9ea31edff2968b44a88f97d784c2f16dc0729b8b143ed004699ebca91f05c48", size = 2747786, upload-time = "2026-01-05T10:45:18.411Z" },
     { url = "https://files.pythonhosted.org/packages/72/f4/0de46cfa12cdcbcd464cc59fde36912af405696f687e53a091fb432f694c/tokenizers-0.22.2-cp39-abi3-win_arm64.whl", hash = "sha256:9ce725d22864a1e965217204946f830c37876eee3b2ba6fc6255e8e903d5fcbc", size = 2612133, upload-time = "2026-01-05T10:45:17.232Z" },
-]
-
-[[package]]
-name = "toolz"
-version = "0.12.1"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/3e/bf/5e12db234df984f6df3c7f12f1428aa680ba4e101f63f4b8b3f9e8d2e617/toolz-0.12.1.tar.gz", hash = "sha256:ecca342664893f177a13dac0e6b41cbd8ac25a358e5f215316d43e2100224f4d", size = 66550, upload-time = "2024-01-24T03:28:28.047Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b7/8a/d82202c9f89eab30f9fc05380daae87d617e2ad11571ab23d7c13a29bb54/toolz-0.12.1-py3-none-any.whl", hash = "sha256:d22731364c07d72eea0a0ad45bafb2c2937ab6fd38a3507bf55eae8744aa7d85", size = 56121, upload-time = "2024-01-24T03:28:25.97Z" },
 ]
 
 [[package]]

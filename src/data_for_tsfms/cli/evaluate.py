@@ -12,11 +12,11 @@ import typer
 from datasets import load_dataset
 from typer_config import use_config
 from data_for_tsfms.cli.config_utils import yaml_conf_callback
+from data_for_tsfms.cli.hf_utils import get_target_columns, load_target_series
 
 from chronos.chronos2 import Chronos2Model
 
 DOMAINS = ("transport", "energy")
-_TARGET_KEYS = ("target", "consumption_kW", "power_mw")
 
 
 def _device_from_arg(device_arg: str | None) -> torch.device:
@@ -24,15 +24,6 @@ def _device_from_arg(device_arg: str | None) -> torch.device:
         return torch.device(device_arg)
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-
-def _get_target(row: dict) -> np.ndarray:
-    for key in _TARGET_KEYS:
-        if key in row:
-            return np.asarray(row[key], dtype=np.float32)
-    raise KeyError(
-        f"Could not find target field in row keys={sorted(row.keys())}. "
-        f"Expected one of {_TARGET_KEYS}."
-    )
 
 
 def _compute_metrics(
@@ -87,17 +78,18 @@ def _predict_on_domain(
 
     for config_name in dataset_names:
         split = load_dataset(hf_repo, config_name, split="train")
-        for row in split:
-            ts = _get_target(row)
-            if len(ts) < context_length + heldout:
+        target_cols = get_target_columns(split.features)
+        for ts in load_target_series(split, target_cols):
+            ts_len = ts.shape[-1]
+            if ts_len < context_length + heldout:
                 continue
             for window_idx in range(num_rolling_windows):
                 offset = (
-                    len(ts) - heldout - context_length + window_idx * prediction_length
+                    ts_len - heldout - context_length + window_idx * prediction_length
                 )
-                all_contexts.append(ts[offset : offset + context_length])
+                all_contexts.append(ts[..., offset : offset + context_length])
                 all_labels.append(
-                    ts[offset + context_length : offset + context_length + prediction_length]
+                    ts[..., offset + context_length : offset + context_length + prediction_length]
                 )
 
     if not all_contexts:
