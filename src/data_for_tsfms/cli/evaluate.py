@@ -9,13 +9,14 @@ import mlflow
 import numpy as np
 import torch
 import typer
-from gluonts.dataset.arrow import File
+from datasets import load_dataset
 from typer_config import use_config
 from data_for_tsfms.cli.config_utils import yaml_conf_callback
 
 from chronos.chronos2 import Chronos2Model
 
 DOMAINS = ("transport", "energy")
+_TARGET_KEYS = ("target", "consumption_kW", "power_mw")
 
 
 def _device_from_arg(device_arg: str | None) -> torch.device:
@@ -24,10 +25,14 @@ def _device_from_arg(device_arg: str | None) -> torch.device:
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def _load_arrow_rows(path: Path) -> list[dict]:
-    if not path.exists():
-        raise FileNotFoundError(f"Arrow file not found: {path}")
-    return list(File.infer(path))
+def _get_target(row: dict) -> np.ndarray:
+    for key in _TARGET_KEYS:
+        if key in row:
+            return np.asarray(row[key], dtype=np.float32)
+    raise KeyError(
+        f"Could not find target field in row keys={sorted(row.keys())}. "
+        f"Expected one of {_TARGET_KEYS}."
+    )
 
 
 def _compute_metrics(
@@ -67,18 +72,42 @@ def _resolve_checkpoint(
 
 def _predict_on_domain(
     model: Chronos2Model,
-    data_dir: Path,
-    domain: str,
+    hf_repo: str,
+    dataset_names: list[str],
+    context_length: int,
+    prediction_length: int,
+    num_rolling_windows: int,
     batch_size: int,
     device: torch.device,
     max_windows: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    rows = _load_arrow_rows(data_dir / f"{domain}_test.arrow")
-    if not rows:
-        raise ValueError(f"No rows in {domain}_test.arrow")
+    heldout = num_rolling_windows * prediction_length
+    all_contexts: list[np.ndarray] = []
+    all_labels: list[np.ndarray] = []
 
-    contexts = np.stack([np.asarray(row["context"], dtype=np.float32) for row in rows])
-    labels = np.stack([np.asarray(row["label"], dtype=np.float32) for row in rows])
+    for config_name in dataset_names:
+        split = load_dataset(hf_repo, config_name, split="train")
+        for row in split:
+            ts = _get_target(row)
+            if len(ts) < context_length + heldout:
+                continue
+            for window_idx in range(num_rolling_windows):
+                offset = (
+                    len(ts) - heldout - context_length + window_idx * prediction_length
+                )
+                all_contexts.append(ts[offset : offset + context_length])
+                all_labels.append(
+                    ts[offset + context_length : offset + context_length + prediction_length]
+                )
+
+    if not all_contexts:
+        raise ValueError(
+            f"No evaluation windows found for datasets {dataset_names}. "
+            "Series may be too short."
+        )
+
+    contexts = np.stack(all_contexts)
+    labels = np.stack(all_labels)
 
     if max_windows is not None:
         if max_windows <= 0:
@@ -171,7 +200,12 @@ def _log_forecast_plots(
 
 def evaluate_model_all_domains(
     model: Chronos2Model,
-    data_dir: Path,
+    hf_repo: str,
+    transport_datasets: list[str],
+    energy_datasets: list[str],
+    context_length: int,
+    prediction_length: int,
+    num_rolling_windows: int,
     batch_size: int,
     device: torch.device,
     max_windows: int | None = None,
@@ -180,12 +214,16 @@ def evaluate_model_all_domains(
     samples_per_domain: int = 10,
     context_points: int = 128,
 ) -> dict[str, float]:
+    domain_datasets = {"transport": transport_datasets, "energy": energy_datasets}
     results: dict[str, float] = {}
     for domain in DOMAINS:
         contexts, labels, quantile_preds, quantiles = _predict_on_domain(
             model=model,
-            data_dir=data_dir,
-            domain=domain,
+            hf_repo=hf_repo,
+            dataset_names=domain_datasets[domain],
+            context_length=context_length,
+            prediction_length=prediction_length,
+            num_rolling_windows=num_rolling_windows,
             batch_size=batch_size,
             device=device,
             max_windows=max_windows,
@@ -212,7 +250,12 @@ def evaluate_model_all_domains(
 
 def evaluate_checkpoint_all_domains(
     checkpoint: Path,
-    data_dir: Path,
+    hf_repo: str,
+    transport_datasets: list[str],
+    energy_datasets: list[str],
+    context_length: int,
+    prediction_length: int,
+    num_rolling_windows: int,
     batch_size: int,
     device: torch.device | None = None,
     max_windows: int | None = None,
@@ -223,7 +266,12 @@ def evaluate_checkpoint_all_domains(
     model.to(device)
     return evaluate_model_all_domains(
         model=model,
-        data_dir=data_dir,
+        hf_repo=hf_repo,
+        transport_datasets=transport_datasets,
+        energy_datasets=energy_datasets,
+        context_length=context_length,
+        prediction_length=prediction_length,
+        num_rolling_windows=num_rolling_windows,
         batch_size=batch_size,
         device=device,
         max_windows=max_windows,
@@ -241,7 +289,18 @@ def main(
         help="Artifact path inside MLflow run used when --checkpoint is omitted.",
     ),
     domain: str = typer.Option("both", "--domain", help="transport | energy | both"),
-    data_dir: Path = typer.Option(Path("data"), "--data-dir"),
+    hf_repo: str = typer.Option(
+        "autogluon/chronos_datasets", "--hf-repo"
+    ),
+    transport_datasets: list[str] = typer.Option(
+        ["monash_traffic", "taxi_30min", "uber_tlc_hourly"], "--transport-datasets"
+    ),
+    energy_datasets: list[str] = typer.Option(
+        ["electricity_15min", "solar_1h", "wind_farms_hourly"], "--energy-datasets"
+    ),
+    num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
+    context_length: int = typer.Option(1024, "--context-length"),
+    prediction_length: int = typer.Option(64, "--prediction-length"),
     batch_size: int = typer.Option(128, "--batch-size"),
     device: str | None = typer.Option(None, "--device"),
     mlflow_run_id: str | None = typer.Option(None, "--mlflow-run-id"),
@@ -267,6 +326,7 @@ def main(
     model.to(device_obj)
 
     domains = DOMAINS if domain == "both" else (domain,)
+    domain_datasets = {"transport": transport_datasets, "energy": energy_datasets}
     all_metrics: dict[str, float] = {}
 
     active_run = mlflow.start_run(run_id=mlflow_run_id) if mlflow_run_id else None
@@ -274,8 +334,11 @@ def main(
         for current_domain in domains:
             contexts, labels, quantile_preds, quantiles = _predict_on_domain(
                 model=model,
-                data_dir=data_dir,
-                domain=current_domain,
+                hf_repo=hf_repo,
+                dataset_names=domain_datasets[current_domain],
+                context_length=context_length,
+                prediction_length=prediction_length,
+                num_rolling_windows=num_rolling_windows,
                 batch_size=batch_size,
                 device=device_obj,
                 max_windows=max_windows,

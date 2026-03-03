@@ -3,9 +3,6 @@ set -euo pipefail
 
 STEPS="${1:-50000}"
 
-uv run tsfms prepare --config configs/prepare/energy.yaml
-uv run tsfms prepare --config configs/prepare/transport.yaml
-
 echo "=== Training transport_only (${STEPS} steps) ==="
 uv run tsfms train --config configs/train/transport_only.yaml --training-steps "${STEPS}"
 
