@@ -16,7 +16,6 @@ dependencies = [
     "gluonts[arrow]>=0.16.2",
     "matplotlib>=3.10.7",
     "mlflow>=3.10.0",
-    "pyarrow>=23.0.1",
     "pyyaml>=6.0.3",
     "torch>=2.10.0",
     "typer>=0.24.1",
@@ -28,3 +27,8 @@ tsfms = "data_for_tsfms.cli.app:app"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/data_for_tsfms"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.4",
+]

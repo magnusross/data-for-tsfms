@@ -1,6 +1,7 @@
+_base: configs/base/datasets.yaml
+data_cache_dir: .hf_cache
 seed: 42
 device: null
-data_dir: data
 local_checkpoint_tmp_root: .tmp_checkpoints
 training_steps: 50000
 batch_size: 32

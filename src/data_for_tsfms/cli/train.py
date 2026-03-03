@@ -9,8 +9,8 @@ import mlflow
 import numpy as np
 import torch
 import typer
-from gluonts.dataset.arrow import File
 from typer_config import use_config
+from data_for_tsfms.hf_utils import load_target_series_cached
 from data_for_tsfms.config_utils import yaml_conf_callback
 from transformers import TrainerCallback, TrainingArguments
 
@@ -45,13 +45,21 @@ def _set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _load_train_inputs(path: Path) -> list[dict[str, np.ndarray]]:
-    if not path.exists():
-        raise FileNotFoundError(f"Missing required data file: {path}")
-    return [
-        {"target": np.asarray(row["target"], dtype=np.float32)}
-        for row in File.infer(path)
-    ]
+def _load_hf_train_inputs(
+    hf_repo: str,
+    dataset_names: list[str],
+    prediction_length: int,
+    num_rolling_windows: int,
+    cache_dir: Path,
+) -> list[dict[str, np.ndarray]]:
+    heldout = num_rolling_windows * prediction_length
+    rows = []
+    for config_name in dataset_names:
+        for ts in load_target_series_cached(hf_repo, config_name, cache_dir):
+            if ts.shape[-1] <= heldout:
+                continue
+            rows.append({"target": ts[..., :-heldout]})
+    return rows
 
 
 def _balance_two_lists(
@@ -70,10 +78,21 @@ def _balance_two_lists(
 
 
 def _build_inputs(
-    run_name: str, data_dir: Path, seed: int
+    run_name: str,
+    hf_repo: str,
+    transport_datasets: list[str],
+    energy_datasets: list[str],
+    prediction_length: int,
+    num_rolling_windows: int,
+    cache_dir: Path,
+    seed: int,
 ) -> list[dict[str, np.ndarray]]:
-    transport = _load_train_inputs(data_dir / "transport_train.arrow")
-    energy = _load_train_inputs(data_dir / "energy_train.arrow")
+    transport = _load_hf_train_inputs(
+        hf_repo, transport_datasets, prediction_length, num_rolling_windows, cache_dir
+    )
+    energy = _load_hf_train_inputs(
+        hf_repo, energy_datasets, prediction_length, num_rolling_windows, cache_dir
+    )
 
     if run_name == "transport_only":
         return transport
@@ -135,7 +154,15 @@ def _build_model(
 @use_config(yaml_conf_callback)
 def main(
     run_name: str = typer.Option(..., "--run-name"),
-    data_dir: Path = typer.Option(Path("data"), "--data-dir"),
+    hf_repo: str = typer.Option("autogluon/chronos_datasets", "--hf-repo"),
+    transport_datasets: list[str] = typer.Option(
+        ["monash_traffic", "taxi_30min", "uber_tlc_hourly"], "--transport-datasets"
+    ),
+    energy_datasets: list[str] = typer.Option(
+        ["electricity_15min", "solar_1h", "wind_farms_hourly"], "--energy-datasets"
+    ),
+    num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
+    data_cache_dir: Path = typer.Option(Path(".hf_cache"), "--data-cache-dir"),
     local_checkpoint_tmp_root: Path = typer.Option(
         Path(".tmp_checkpoints"), "--local-checkpoint-tmp-root"
     ),
@@ -188,7 +215,16 @@ def main(
         raise ValueError(f"run_name must be one of {RUNS}")
 
     _set_seed(seed)
-    train_inputs = _build_inputs(run_name=run_name, data_dir=data_dir, seed=seed)
+    train_inputs = _build_inputs(
+        run_name=run_name,
+        hf_repo=hf_repo,
+        transport_datasets=list(transport_datasets),
+        energy_datasets=list(energy_datasets),
+        prediction_length=prediction_length,
+        num_rolling_windows=num_rolling_windows,
+        cache_dir=data_cache_dir,
+        seed=seed,
+    )
 
     train_dataset = Chronos2Dataset(
         inputs=train_inputs,
@@ -282,7 +318,13 @@ def main(
         eval_device = next(model.parameters()).device
         eval_metrics = evaluate_model_all_domains(
             model=model,
-            data_dir=data_dir,
+            hf_repo=hf_repo,
+            transport_datasets=list(transport_datasets),
+            energy_datasets=list(energy_datasets),
+            context_length=context_length,
+            prediction_length=prediction_length,
+            num_rolling_windows=num_rolling_windows,
+            cache_dir=data_cache_dir,
             batch_size=eval_batch_size,
             device=eval_device,
             max_windows=eval_max_windows,

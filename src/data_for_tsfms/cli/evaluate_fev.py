@@ -5,7 +5,6 @@ from typing import Any
 
 import mlflow
 import numpy as np
-import torch
 import typer
 import yaml
 from typer_config import use_config
