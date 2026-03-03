@@ -1,0 +1,13 @@
+checkpoint: null
+checkpoint_artifact_path: checkpoints/final
+task_config: configs/evaluate_fev/joint.yaml
+model_name: chronos2-finetuned
+batch_size: 128
+device: null
+mlflow_run_id: null
+max_windows: null
+as_univariate: false
+cross_learning: false
+plot_samples_per_task: 3
+plot_context_points: 128
+plot_artifact_dir: evaluation_plots_fev

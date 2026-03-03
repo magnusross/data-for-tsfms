@@ -147,7 +147,7 @@ def main(
     weight_decay: float = typer.Option(0.01, "--weight-decay"),
     warmup_ratio: float = typer.Option(0.06, "--warmup-ratio"),
     logging_steps: int = typer.Option(1, "--logging-steps"),
-    save_steps: int = typer.Option(500, "--save-steps"),
+    save_steps: int = typer.Option(1_000_000, "--save-steps"),
     dataloader_workers: int = typer.Option(0, "--dataloader-workers"),
     eval_batch_size: int = typer.Option(128, "--eval-batch-size"),
     eval_max_windows: int | None = typer.Option(
