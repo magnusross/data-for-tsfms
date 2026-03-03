@@ -18,6 +18,7 @@ CLI configuration is handled with `typer-config` and YAML files in:
 - `configs/prepare/`
 - `configs/train/`
 - `configs/evaluate/`
+- `configs/evaluate_fev/`
 
 Project layout:
 
@@ -35,6 +36,7 @@ Available commands:
 - `uv run tsfms prepare`
 - `uv run tsfms train`
 - `uv run tsfms evaluate`
+- `uv run tsfms evaluate-fev`
 
 ## Data preparation
 
@@ -79,6 +81,26 @@ uv run tsfms evaluate --config configs/evaluate/transport_only.yaml --mlflow-run
 ```
 
 `tsfms train` logs all checkpoints as MLflow artifacts under `checkpoints/`, and logs the final checkpoint URI as run param `final_checkpoint_uri`.
+
+## Evaluate on FEV benchmark tasks
+
+Run Chronos-2 evaluation on FEV tasks with task definitions in `configs/evaluate_fev/`:
+
+```bash
+uv run tsfms evaluate-fev --config configs/evaluate_fev/default.yaml --mlflow-run-id <RUN_ID>
+```
+
+Task presets included:
+
+- `configs/evaluate_fev/transport.yaml` (`LOOP_SEATTLE_1H`)
+- `configs/evaluate_fev/energy.yaml` (`entsoe_1H`)
+- `configs/evaluate_fev/joint.yaml` (both tasks)
+
+To switch benchmark tasks while keeping other defaults:
+
+```bash
+uv run tsfms evaluate-fev --config configs/evaluate_fev/default.yaml --mlflow-run-id <RUN_ID> --task-config configs/evaluate_fev/transport.yaml
+```
 
 ## Full experiment script
 

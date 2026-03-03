@@ -1,27 +1,24 @@
 from __future__ import annotations
 
 import math
-import tempfile
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import mlflow
 import numpy as np
 import torch
 import typer
 from typer_config import use_config
-from data_for_tsfms.cli.config_utils import yaml_conf_callback
-from data_for_tsfms.cli.hf_utils import load_target_series_cached
+from data_for_tsfms.config_utils import yaml_conf_callback
+from data_for_tsfms.hf_utils import load_target_series_cached
+from data_for_tsfms.evaluation_utils import (
+    device_from_arg,
+    log_forecast_plots,
+    resolve_checkpoint,
+)
 
 from chronos.chronos2 import Chronos2Model
 
 DOMAINS = ("transport", "energy")
-
-
-def _device_from_arg(device_arg: str | None) -> torch.device:
-    if device_arg is not None:
-        return torch.device(device_arg)
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 def _compute_metrics(
@@ -41,22 +38,6 @@ def _compute_metrics(
     mae = float(np.mean(np.abs(errors)))
     rmse = float(np.sqrt(np.mean(errors**2)))
     return {"crps": crps, "mae": mae, "rmse": rmse}
-
-
-def _resolve_checkpoint(
-    checkpoint: Path | None,
-    mlflow_run_id: str | None,
-    checkpoint_artifact_path: str,
-) -> Path:
-    if checkpoint is not None:
-        return checkpoint
-    if mlflow_run_id is None:
-        raise ValueError(
-            "Either --checkpoint or --mlflow-run-id must be provided for evaluation."
-        )
-    uri = f"runs:/{mlflow_run_id}/{checkpoint_artifact_path}"
-    local_path = mlflow.artifacts.download_artifacts(artifact_uri=uri)
-    return Path(local_path)
 
 
 def _predict_on_domain(
@@ -128,70 +109,6 @@ def _predict_on_domain(
     return contexts, labels, quantile_preds, quantiles
 
 
-def _log_forecast_plots(
-    *,
-    domain: str,
-    contexts: np.ndarray,
-    labels: np.ndarray,
-    quantile_preds: np.ndarray,
-    quantiles: np.ndarray,
-    mlflow_artifact_dir: str,
-    samples_per_domain: int,
-    context_points: int,
-) -> None:
-    if len(contexts) == 0:
-        return
-
-    median_idx = int(np.argmin(np.abs(quantiles - 0.5)))
-    lower_idx = int(np.argmin(np.abs(quantiles - 0.1)))
-    upper_idx = int(np.argmin(np.abs(quantiles - 0.9)))
-
-    count = min(samples_per_domain, len(contexts))
-    sample_indices = np.linspace(0, len(contexts) - 1, num=count, dtype=int)
-
-    with tempfile.TemporaryDirectory() as tmp_dir:
-        tmp_path = Path(tmp_dir)
-        for plot_num, sample_idx in enumerate(sample_indices, start=1):
-            context = contexts[int(sample_idx)]
-            label = labels[int(sample_idx)]
-            pred_median = quantile_preds[int(sample_idx), median_idx, :]
-            pred_low = quantile_preds[int(sample_idx), lower_idx, :]
-            pred_high = quantile_preds[int(sample_idx), upper_idx, :]
-
-            context_tail = context[-context_points:]
-            context_x = np.arange(len(context_tail))
-            forecast_x = np.arange(len(context_tail), len(context_tail) + len(label))
-
-            fig, ax = plt.subplots(figsize=(8, 4))
-            ax.plot(context_x, context_tail, label="context", color="tab:blue")
-            ax.plot(forecast_x, label, label="ground truth", color="tab:green")
-            ax.plot(forecast_x, pred_median, label="forecast p50", color="tab:orange")
-            ax.fill_between(
-                forecast_x,
-                pred_low,
-                pred_high,
-                color="tab:orange",
-                alpha=0.2,
-                label="forecast p10-p90",
-            )
-            ax.axvline(
-                x=len(context_tail) - 1, color="black", linestyle="--", alpha=0.5
-            )
-            ax.set_title(f"{domain} sample {plot_num}")
-            ax.set_xlabel("time index")
-            ax.set_ylabel("value")
-            ax.legend(loc="best")
-            fig.tight_layout()
-
-            out_file = tmp_path / f"{domain}_sample_{plot_num}.png"
-            fig.savefig(out_file, dpi=120)
-            plt.close(fig)
-
-        mlflow.log_artifacts(
-            str(tmp_path), artifact_path=f"{mlflow_artifact_dir}/{domain}"
-        )
-
-
 def evaluate_model_all_domains(
     model: Chronos2Model,
     hf_repo: str,
@@ -231,14 +148,14 @@ def evaluate_model_all_domains(
         for key, value in metrics.items():
             results[f"{domain}/{key}"] = value
         if log_plots:
-            _log_forecast_plots(
-                domain=domain,
+            log_forecast_plots(
+                label=domain,
                 contexts=contexts,
                 labels=labels,
                 quantile_preds=quantile_preds,
                 quantiles=quantiles,
                 mlflow_artifact_dir=plot_artifact_dir,
-                samples_per_domain=samples_per_domain,
+                samples=samples_per_domain,
                 context_points=context_points,
             )
     return results
@@ -257,7 +174,7 @@ def evaluate_checkpoint_all_domains(
     device: torch.device | None = None,
     max_windows: int | None = None,
 ) -> dict[str, float]:
-    device = device or _device_from_arg(None)
+    device = device or device_from_arg(None)
     model = Chronos2Model.from_pretrained(checkpoint)
     model.eval()
     model.to(device)
@@ -311,8 +228,8 @@ def main(
     if domain not in {"transport", "energy", "both"}:
         raise ValueError("domain must be one of: transport, energy, both")
 
-    device_obj = _device_from_arg(device)
-    resolved_checkpoint = _resolve_checkpoint(
+    device_obj = device_from_arg(device)
+    resolved_checkpoint = resolve_checkpoint(
         checkpoint=checkpoint,
         mlflow_run_id=mlflow_run_id,
         checkpoint_artifact_path=checkpoint_artifact_path,
@@ -356,14 +273,14 @@ def main(
                 all_metrics[f"{current_domain}/{key}"] = value
 
             if mlflow_run_id:
-                _log_forecast_plots(
-                    domain=current_domain,
+                log_forecast_plots(
+                    label=current_domain,
                     contexts=contexts,
                     labels=labels,
                     quantile_preds=quantile_preds,
                     quantiles=quantiles,
                     mlflow_artifact_dir=plot_artifact_dir,
-                    samples_per_domain=plot_samples_per_domain,
+                    samples=plot_samples_per_domain,
                     context_points=plot_context_points,
                 )
 

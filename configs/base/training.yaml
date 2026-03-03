@@ -3,13 +3,13 @@ data_cache_dir: .hf_cache
 seed: 42
 device: null
 local_checkpoint_tmp_root: .tmp_checkpoints
-training_steps: 10000
+training_steps: 50000
 batch_size: 32
 learning_rate: 0.001
 weight_decay: 0.01
 warmup_ratio: 0.06
 logging_steps: 1
-save_steps: 500
+save_steps: 1_000_000
 dataloader_workers: 0
 eval_batch_size: 128
 plot_samples_per_domain: 10
