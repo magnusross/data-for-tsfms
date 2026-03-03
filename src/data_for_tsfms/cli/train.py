@@ -45,7 +45,6 @@ def _set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-
 def _load_hf_train_inputs(
     hf_repo: str,
     dataset_names: list[str],
@@ -163,6 +162,7 @@ def main(
         ["electricity_15min", "solar_1h", "wind_farms_hourly"], "--energy-datasets"
     ),
     num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
+    data_cache_dir: Path = typer.Option(Path(".hf_cache"), "--data-cache-dir"),
     local_checkpoint_tmp_root: Path = typer.Option(
         Path(".tmp_checkpoints"), "--local-checkpoint-tmp-root"
     ),
@@ -222,6 +222,7 @@ def main(
         energy_datasets=list(energy_datasets),
         prediction_length=prediction_length,
         num_rolling_windows=num_rolling_windows,
+        cache_dir=data_cache_dir,
         seed=seed,
     )
 
@@ -323,6 +324,7 @@ def main(
             context_length=context_length,
             prediction_length=prediction_length,
             num_rolling_windows=num_rolling_windows,
+            cache_dir=data_cache_dir,
             batch_size=eval_batch_size,
             device=eval_device,
             max_windows=eval_max_windows,

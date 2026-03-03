@@ -9,10 +9,9 @@ import mlflow
 import numpy as np
 import torch
 import typer
-from datasets import load_dataset
 from typer_config import use_config
 from data_for_tsfms.cli.config_utils import yaml_conf_callback
-from data_for_tsfms.cli.hf_utils import get_target_columns, load_target_series
+from data_for_tsfms.cli.hf_utils import load_target_series_cached
 
 from chronos.chronos2 import Chronos2Model
 
@@ -23,7 +22,6 @@ def _device_from_arg(device_arg: str | None) -> torch.device:
     if device_arg is not None:
         return torch.device(device_arg)
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 
 
 def _compute_metrics(
@@ -68,6 +66,7 @@ def _predict_on_domain(
     context_length: int,
     prediction_length: int,
     num_rolling_windows: int,
+    cache_dir: Path,
     batch_size: int,
     device: torch.device,
     max_windows: int | None = None,
@@ -77,9 +76,7 @@ def _predict_on_domain(
     all_labels: list[np.ndarray] = []
 
     for config_name in dataset_names:
-        split = load_dataset(hf_repo, config_name, split="train")
-        target_cols = get_target_columns(split.features)
-        for ts in load_target_series(split, target_cols):
+        for ts in load_target_series_cached(hf_repo, config_name, cache_dir):
             ts_len = ts.shape[-1]
             if ts_len < context_length + heldout:
                 continue
@@ -89,7 +86,12 @@ def _predict_on_domain(
                 )
                 all_contexts.append(ts[..., offset : offset + context_length])
                 all_labels.append(
-                    ts[..., offset + context_length : offset + context_length + prediction_length]
+                    ts[
+                        ...,
+                        offset + context_length : offset
+                        + context_length
+                        + prediction_length,
+                    ]
                 )
 
     if not all_contexts:
@@ -198,6 +200,7 @@ def evaluate_model_all_domains(
     context_length: int,
     prediction_length: int,
     num_rolling_windows: int,
+    cache_dir: Path,
     batch_size: int,
     device: torch.device,
     max_windows: int | None = None,
@@ -216,6 +219,7 @@ def evaluate_model_all_domains(
             context_length=context_length,
             prediction_length=prediction_length,
             num_rolling_windows=num_rolling_windows,
+            cache_dir=cache_dir,
             batch_size=batch_size,
             device=device,
             max_windows=max_windows,
@@ -248,6 +252,7 @@ def evaluate_checkpoint_all_domains(
     context_length: int,
     prediction_length: int,
     num_rolling_windows: int,
+    cache_dir: Path,
     batch_size: int,
     device: torch.device | None = None,
     max_windows: int | None = None,
@@ -264,6 +269,7 @@ def evaluate_checkpoint_all_domains(
         context_length=context_length,
         prediction_length=prediction_length,
         num_rolling_windows=num_rolling_windows,
+        cache_dir=cache_dir,
         batch_size=batch_size,
         device=device,
         max_windows=max_windows,
@@ -281,9 +287,7 @@ def main(
         help="Artifact path inside MLflow run used when --checkpoint is omitted.",
     ),
     domain: str = typer.Option("both", "--domain", help="transport | energy | both"),
-    hf_repo: str = typer.Option(
-        "autogluon/chronos_datasets", "--hf-repo"
-    ),
+    hf_repo: str = typer.Option("autogluon/chronos_datasets", "--hf-repo"),
     transport_datasets: list[str] = typer.Option(
         ["monash_traffic", "taxi_30min", "uber_tlc_hourly"], "--transport-datasets"
     ),
@@ -291,6 +295,7 @@ def main(
         ["electricity_15min", "solar_1h", "wind_farms_hourly"], "--energy-datasets"
     ),
     num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
+    data_cache_dir: Path = typer.Option(Path(".hf_cache"), "--data-cache-dir"),
     context_length: int = typer.Option(1024, "--context-length"),
     prediction_length: int = typer.Option(64, "--prediction-length"),
     batch_size: int = typer.Option(128, "--batch-size"),
@@ -331,6 +336,7 @@ def main(
                 context_length=context_length,
                 prediction_length=prediction_length,
                 num_rolling_windows=num_rolling_windows,
+                cache_dir=data_cache_dir,
                 batch_size=batch_size,
                 device=device_obj,
                 max_windows=max_windows,

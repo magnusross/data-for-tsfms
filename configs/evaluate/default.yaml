@@ -1,6 +1,7 @@
 _base:
   - configs/base/datasets.yaml
   - configs/base/model.yaml
+data_cache_dir: .hf_cache
 checkpoint: null
 checkpoint_artifact_path: checkpoints/final
 domain: both
