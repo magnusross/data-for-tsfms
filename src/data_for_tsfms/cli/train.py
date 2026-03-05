@@ -10,8 +10,8 @@ import numpy as np
 import torch
 import typer
 from typer_config import use_config
-from data_for_tsfms.hf_utils import load_target_series_cached
-from data_for_tsfms.config_utils import yaml_conf_callback
+from data_for_tsfms.hf_utils import DomainConfig, load_domain_series_cached
+from data_for_tsfms.config_utils import yaml_conf_callback, get_loaded_config
 from transformers import TrainerCallback, TrainingArguments
 
 from chronos.chronos2 import (
@@ -25,7 +25,6 @@ from chronos.chronos2.trainer import Chronos2Trainer
 from data_for_tsfms.cli.evaluate import evaluate_model_all_domains
 
 QUANTILES = [0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95, 0.99]
-RUNS = ("transport_only", "energy_only", "joint")
 
 
 class MlflowTrainLossCallback(TrainerCallback):
@@ -45,28 +44,26 @@ def _set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _load_hf_train_inputs(
-    hf_repo: str,
-    dataset_names: list[str],
+def _load_domain_train_inputs(
+    domain_cfg: DomainConfig,
     prediction_length: int,
     num_rolling_windows: int,
     cache_dir: Path,
 ) -> list[dict[str, np.ndarray]]:
     heldout = num_rolling_windows * prediction_length
     rows = []
-    for config_name in dataset_names:
-        for ts in load_target_series_cached(hf_repo, config_name, cache_dir):
-            if ts.shape[-1] <= heldout:
-                continue
-            rows.append({"target": ts[..., :-heldout]})
+    for ts in load_domain_series_cached(domain_cfg, cache_dir):
+        if ts.shape[-1] <= heldout:
+            continue
+        rows.append({"target": ts[..., :-heldout]})
     return rows
 
 
-def _balance_two_lists(
-    a: list[dict], b: list[dict], seed: int
-) -> tuple[list[dict], list[dict]]:
+def _balance_domains(
+    domain_series: list[list[dict]], seed: int
+) -> list[dict[str, np.ndarray]]:
     rng = np.random.default_rng(seed)
-    target_len = max(len(a), len(b))
+    target_len = max(len(d) for d in domain_series)
 
     def _resample(xs: list[dict]) -> list[dict]:
         if len(xs) == target_len:
@@ -74,37 +71,30 @@ def _balance_two_lists(
         idx = rng.integers(low=0, high=len(xs), size=target_len)
         return [xs[int(i)] for i in idx]
 
-    return _resample(a), _resample(b)
+    resampled = [_resample(d) for d in domain_series]
+    result: list[dict[str, np.ndarray]] = []
+    for row_group in zip(*resampled):
+        result.extend(row_group)
+    return result
 
 
 def _build_inputs(
-    run_name: str,
-    hf_repo: str,
-    transport_datasets: list[str],
-    energy_datasets: list[str],
+    active_domains: list[str],
+    domain_configs: dict[str, DomainConfig],
     prediction_length: int,
     num_rolling_windows: int,
     cache_dir: Path,
     seed: int,
 ) -> list[dict[str, np.ndarray]]:
-    transport = _load_hf_train_inputs(
-        hf_repo, transport_datasets, prediction_length, num_rolling_windows, cache_dir
-    )
-    energy = _load_hf_train_inputs(
-        hf_repo, energy_datasets, prediction_length, num_rolling_windows, cache_dir
-    )
-
-    if run_name == "transport_only":
-        return transport
-    if run_name == "energy_only":
-        return energy
-
-    transport_bal, energy_bal = _balance_two_lists(transport, energy, seed)
-    joint: list[dict[str, np.ndarray]] = []
-    for t_row, e_row in zip(transport_bal, energy_bal):
-        joint.append(t_row)
-        joint.append(e_row)
-    return joint
+    domain_data = [
+        _load_domain_train_inputs(
+            domain_configs[d], prediction_length, num_rolling_windows, cache_dir
+        )
+        for d in active_domains
+    ]
+    if len(domain_data) == 1:
+        return domain_data[0]
+    return _balance_domains(domain_data, seed)
 
 
 def _build_model(
@@ -154,13 +144,7 @@ def _build_model(
 @use_config(yaml_conf_callback)
 def main(
     run_name: str = typer.Option(..., "--run-name"),
-    hf_repo: str = typer.Option("autogluon/chronos_datasets", "--hf-repo"),
-    transport_datasets: list[str] = typer.Option(
-        ["monash_traffic", "taxi_30min", "uber_tlc_hourly"], "--transport-datasets"
-    ),
-    energy_datasets: list[str] = typer.Option(
-        ["electricity_15min", "solar_1h", "wind_farms_hourly"], "--energy-datasets"
-    ),
+    active_domains: list[str] = typer.Option([], "--active-domains"),
     num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
     data_cache_dir: Path = typer.Option(Path(".hf_cache"), "--data-cache-dir"),
     local_checkpoint_tmp_root: Path = typer.Option(
@@ -211,15 +195,26 @@ def main(
     use_reg_token: bool = typer.Option(True, "--use-reg-token/--no-use-reg-token"),
     quantiles: list[float] = typer.Option(QUANTILES, "--quantiles"),
 ) -> None:
-    if run_name not in RUNS:
-        raise ValueError(f"run_name must be one of {RUNS}")
+    # Resolve domain configs from the loaded YAML (domains dict is not a typer param)
+    cfg = get_loaded_config()
+    all_domain_cfgs = {
+        name: DomainConfig.from_dict(d)
+        for name, d in cfg.get("domains", {}).items()
+    }
+
+    if not active_domains:
+        raise ValueError("active_domains must be specified in the config or on the CLI")
+    for d in active_domains:
+        if d not in all_domain_cfgs:
+            raise ValueError(
+                f"Domain '{d}' not found in config. Available: {list(all_domain_cfgs.keys())}"
+            )
+    domain_configs = {d: all_domain_cfgs[d] for d in active_domains}
 
     _set_seed(seed)
     train_inputs = _build_inputs(
-        run_name=run_name,
-        hf_repo=hf_repo,
-        transport_datasets=list(transport_datasets),
-        energy_datasets=list(energy_datasets),
+        active_domains=list(active_domains),
+        domain_configs=domain_configs,
         prediction_length=prediction_length,
         num_rolling_windows=num_rolling_windows,
         cache_dir=data_cache_dir,
@@ -283,6 +278,7 @@ def main(
         mlflow.log_params(
             {
                 "run_name": run_name,
+                "active_domains": ",".join(active_domains),
                 "seed": seed,
                 "training_steps": training_steps,
                 "batch_size": batch_size,
@@ -292,7 +288,6 @@ def main(
                 "context_length": context_length,
                 "prediction_length": prediction_length,
                 "output_patch_size": output_patch_size,
-                "datasets": run_name,
             }
         )
 
@@ -318,9 +313,8 @@ def main(
         eval_device = next(model.parameters()).device
         eval_metrics = evaluate_model_all_domains(
             model=model,
-            hf_repo=hf_repo,
-            transport_datasets=list(transport_datasets),
-            energy_datasets=list(energy_datasets),
+            active_domains=list(active_domains),
+            domain_configs=domain_configs,
             context_length=context_length,
             prediction_length=prediction_length,
             num_rolling_windows=num_rolling_windows,

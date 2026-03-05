@@ -2,3 +2,5 @@ _base:
   - configs/base/model.yaml
   - configs/base/training.yaml
 run_name: energy_only
+active_domains:
+  - energy

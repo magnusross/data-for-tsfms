@@ -1,10 +1,18 @@
-hf_repo: autogluon/chronos_datasets
 num_rolling_windows: 5
-transport_datasets:
-  - monash_traffic
-  - taxi_30min
-  - uber_tlc_hourly
-energy_datasets:
-  - electricity_15min
-  - solar_1h
-  - wind_farms_hourly
+domains:
+  transport:
+    hf_repo: autogluon/chronos_datasets
+    datasets:
+      - monash_traffic
+      - taxi_30min
+      - uber_tlc_hourly
+  energy:
+    hf_repo: autogluon/chronos_datasets
+    datasets:
+      - electricity_15min
+      - solar_1h
+      - wind_farms_hourly
+  cloudops:
+    hf_repo: Salesforce/GiftEvalPretrain
+    datasets:
+      - alibaba_cluster_trace_2018

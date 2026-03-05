@@ -8,8 +8,8 @@ import numpy as np
 import torch
 import typer
 from typer_config import use_config
-from data_for_tsfms.config_utils import yaml_conf_callback
-from data_for_tsfms.hf_utils import load_target_series_cached
+from data_for_tsfms.config_utils import yaml_conf_callback, get_loaded_config
+from data_for_tsfms.hf_utils import DomainConfig, load_domain_series_cached
 from data_for_tsfms.evaluation_utils import (
     device_from_arg,
     log_forecast_plots,
@@ -17,8 +17,6 @@ from data_for_tsfms.evaluation_utils import (
 )
 
 from chronos.chronos2 import Chronos2Model
-
-DOMAINS = ("transport", "energy")
 
 
 def _compute_metrics(
@@ -42,8 +40,7 @@ def _compute_metrics(
 
 def _predict_on_domain(
     model: Chronos2Model,
-    hf_repo: str,
-    dataset_names: list[str],
+    domain_cfg: DomainConfig,
     context_length: int,
     prediction_length: int,
     num_rolling_windows: int,
@@ -56,28 +53,25 @@ def _predict_on_domain(
     all_contexts: list[np.ndarray] = []
     all_labels: list[np.ndarray] = []
 
-    for config_name in dataset_names:
-        for ts in load_target_series_cached(hf_repo, config_name, cache_dir):
-            ts_len = ts.shape[-1]
-            if ts_len < context_length + heldout:
-                continue
-            for window_idx in range(num_rolling_windows):
-                offset = (
-                    ts_len - heldout - context_length + window_idx * prediction_length
-                )
-                all_contexts.append(ts[..., offset : offset + context_length])
-                all_labels.append(
-                    ts[
-                        ...,
-                        offset + context_length : offset
-                        + context_length
-                        + prediction_length,
-                    ]
-                )
+    for ts in load_domain_series_cached(domain_cfg, cache_dir):
+        ts_len = ts.shape[-1]
+        if ts_len < context_length + heldout:
+            continue
+        for window_idx in range(num_rolling_windows):
+            offset = (
+                ts_len - heldout - context_length + window_idx * prediction_length
+            )
+            all_contexts.append(ts[..., offset : offset + context_length])
+            all_labels.append(
+                ts[
+                    ...,
+                    offset + context_length : offset + context_length + prediction_length,
+                ]
+            )
 
     if not all_contexts:
         raise ValueError(
-            f"No evaluation windows found for datasets {dataset_names}. "
+            f"No evaluation windows found for datasets {domain_cfg.datasets}. "
             "Series may be too short."
         )
 
@@ -111,9 +105,8 @@ def _predict_on_domain(
 
 def evaluate_model_all_domains(
     model: Chronos2Model,
-    hf_repo: str,
-    transport_datasets: list[str],
-    energy_datasets: list[str],
+    active_domains: list[str],
+    domain_configs: dict[str, DomainConfig],
     context_length: int,
     prediction_length: int,
     num_rolling_windows: int,
@@ -126,13 +119,11 @@ def evaluate_model_all_domains(
     samples_per_domain: int = 10,
     context_points: int = 128,
 ) -> dict[str, float]:
-    domain_datasets = {"transport": transport_datasets, "energy": energy_datasets}
     results: dict[str, float] = {}
-    for domain in DOMAINS:
+    for domain in active_domains:
         contexts, labels, quantile_preds, quantiles = _predict_on_domain(
             model=model,
-            hf_repo=hf_repo,
-            dataset_names=domain_datasets[domain],
+            domain_cfg=domain_configs[domain],
             context_length=context_length,
             prediction_length=prediction_length,
             num_rolling_windows=num_rolling_windows,
@@ -161,38 +152,6 @@ def evaluate_model_all_domains(
     return results
 
 
-def evaluate_checkpoint_all_domains(
-    checkpoint: Path,
-    hf_repo: str,
-    transport_datasets: list[str],
-    energy_datasets: list[str],
-    context_length: int,
-    prediction_length: int,
-    num_rolling_windows: int,
-    cache_dir: Path,
-    batch_size: int,
-    device: torch.device | None = None,
-    max_windows: int | None = None,
-) -> dict[str, float]:
-    device = device or device_from_arg(None)
-    model = Chronos2Model.from_pretrained(checkpoint)
-    model.eval()
-    model.to(device)
-    return evaluate_model_all_domains(
-        model=model,
-        hf_repo=hf_repo,
-        transport_datasets=transport_datasets,
-        energy_datasets=energy_datasets,
-        context_length=context_length,
-        prediction_length=prediction_length,
-        num_rolling_windows=num_rolling_windows,
-        cache_dir=cache_dir,
-        batch_size=batch_size,
-        device=device,
-        max_windows=max_windows,
-    )
-
-
 @use_config(yaml_conf_callback)
 def main(
     checkpoint: Path | None = typer.Option(
@@ -203,14 +162,7 @@ def main(
         "--checkpoint-artifact-path",
         help="Artifact path inside MLflow run used when --checkpoint is omitted.",
     ),
-    domain: str = typer.Option("both", "--domain", help="transport | energy | both"),
-    hf_repo: str = typer.Option("autogluon/chronos_datasets", "--hf-repo"),
-    transport_datasets: list[str] = typer.Option(
-        ["monash_traffic", "taxi_30min", "uber_tlc_hourly"], "--transport-datasets"
-    ),
-    energy_datasets: list[str] = typer.Option(
-        ["electricity_15min", "solar_1h", "wind_farms_hourly"], "--energy-datasets"
-    ),
+    active_domains: list[str] = typer.Option([], "--active-domains"),
     num_rolling_windows: int = typer.Option(5, "--num-rolling-windows"),
     data_cache_dir: Path = typer.Option(Path(".hf_cache"), "--data-cache-dir"),
     context_length: int = typer.Option(1024, "--context-length"),
@@ -225,8 +177,17 @@ def main(
     plot_context_points: int = typer.Option(128, "--plot-context-points"),
     plot_artifact_dir: str = typer.Option("evaluation_plots", "--plot-artifact-dir"),
 ) -> None:
-    if domain not in {"transport", "energy", "both"}:
-        raise ValueError("domain must be one of: transport, energy, both")
+    cfg = get_loaded_config()
+    all_domain_cfgs = {
+        name: DomainConfig.from_dict(d)
+        for name, d in cfg.get("domains", {}).items()
+    }
+
+    domains_to_eval = list(active_domains) if active_domains else list(all_domain_cfgs.keys())
+    for d in domains_to_eval:
+        if d not in all_domain_cfgs:
+            raise ValueError(f"Domain '{d}' not in config. Available: {list(all_domain_cfgs.keys())}")
+    domain_configs = {d: all_domain_cfgs[d] for d in domains_to_eval}
 
     device_obj = device_from_arg(device)
     resolved_checkpoint = resolve_checkpoint(
@@ -239,17 +200,13 @@ def main(
     model.eval()
     model.to(device_obj)
 
-    domains = DOMAINS if domain == "both" else (domain,)
-    domain_datasets = {"transport": transport_datasets, "energy": energy_datasets}
     all_metrics: dict[str, float] = {}
-
     active_run = mlflow.start_run(run_id=mlflow_run_id) if mlflow_run_id else None
     try:
-        for current_domain in domains:
+        for domain in domains_to_eval:
             contexts, labels, quantile_preds, quantiles = _predict_on_domain(
                 model=model,
-                hf_repo=hf_repo,
-                dataset_names=domain_datasets[current_domain],
+                domain_cfg=domain_configs[domain],
                 context_length=context_length,
                 prediction_length=prediction_length,
                 num_rolling_windows=num_rolling_windows,
@@ -266,15 +223,15 @@ def main(
             metrics["num_windows"] = float(labels.shape[0])
 
             print(
-                f"{current_domain} -> "
+                f"{domain} -> "
                 + ", ".join(f"{k}={v:.6f}" for k, v in metrics.items())
             )
             for key, value in metrics.items():
-                all_metrics[f"{current_domain}/{key}"] = value
+                all_metrics[f"{domain}/{key}"] = value
 
             if mlflow_run_id:
                 log_forecast_plots(
-                    label=current_domain,
+                    label=domain,
                     contexts=contexts,
                     labels=labels,
                     quantile_preds=quantile_preds,
