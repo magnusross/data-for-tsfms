@@ -313,8 +313,8 @@ def main(
         eval_device = next(model.parameters()).device
         eval_metrics = evaluate_model_all_domains(
             model=model,
-            active_domains=list(active_domains),
-            domain_configs=domain_configs,
+            active_domains=list(all_domain_cfgs.keys()),
+            domain_configs=all_domain_cfgs,
             context_length=context_length,
             prediction_length=prediction_length,
             num_rolling_windows=num_rolling_windows,
