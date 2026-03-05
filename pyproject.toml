@@ -16,11 +16,14 @@ dependencies = [
     "gluonts[arrow]>=0.16.2",
     "matplotlib>=3.10.7",
     "mlflow>=3.10.0",
+    "nbformat>=5.10.4",
+    "plotly>=6.6.0",
     "pyyaml>=6.0.3",
     "seaborn>=0.13.2",
     "torch>=2.10.0",
     "typer>=0.24.1",
     "typer-config>=1.5.1",
+    "umap-learn>=0.5.11",
 ]
 
 [project.scripts]
