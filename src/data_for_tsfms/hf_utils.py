@@ -6,8 +6,11 @@ from pathlib import Path
 
 import numpy as np
 from datasets import Dataset, Sequence, Value, load_dataset
+from datasets.features.features import List as HFList
 
-_NUMERIC_DTYPES = frozenset({"float32", "float64", "double", "int8", "int16", "int32", "int64"})
+_NUMERIC_DTYPES = frozenset(
+    {"float32", "float64", "double", "int8", "int16", "int32", "int64"}
+)
 
 GIFT_EVAL_REPO = "Salesforce/GiftEvalPretrain"
 
@@ -26,10 +29,11 @@ class DomainConfig:
 
 
 def get_target_columns(features) -> list[str]:
-    """Return names of all numeric Sequence columns (target time series per the dataset schema)."""
+    """Return names of all numeric Sequence/List columns (target time series per the dataset schema)."""
     return [
-        name for name, feat in features.items()
-        if isinstance(feat, Sequence)
+        name
+        for name, feat in features.items()
+        if isinstance(feat, (Sequence, HFList))
         and isinstance(feat.feature, Value)
         and feat.feature.dtype in _NUMERIC_DTYPES
     ]
@@ -47,7 +51,12 @@ def load_target_series(split, target_cols: list[str]) -> list[np.ndarray]:
     if len(columns) == 1:
         return [np.asarray(ts, dtype=np.float32) for ts in columns[0]]
     return [
-        np.stack([np.asarray(columns[j][i], dtype=np.float32) for j in range(len(target_cols))])
+        np.stack(
+            [
+                np.asarray(columns[j][i], dtype=np.float32)
+                for j in range(len(target_cols))
+            ]
+        )
         for i in range(len(split))
     ]
 
@@ -93,12 +102,18 @@ def load_gift_eval_series_cached(
 
     from huggingface_hub import HfApi, hf_hub_download
 
-    tree = HfApi().list_repo_tree(repo_id=hf_repo, path_in_repo=dataset_name, repo_type="dataset")
-    first_shard = min((item.path for item in tree if item.path.endswith(".arrow")), default=None)
+    tree = HfApi().list_repo_tree(
+        repo_id=hf_repo, path_in_repo=dataset_name, repo_type="dataset"
+    )
+    first_shard = min(
+        (item.path for item in tree if item.path.endswith(".arrow")), default=None
+    )
     if first_shard is None:
         raise FileNotFoundError(f"No arrow files found for {hf_repo}/{dataset_name}")
 
-    local_path = hf_hub_download(repo_id=hf_repo, filename=first_shard, repo_type="dataset")
+    local_path = hf_hub_download(
+        repo_id=hf_repo, filename=first_shard, repo_type="dataset"
+    )
     shard = Dataset.from_file(local_path)
 
     series: list[np.ndarray] = []
@@ -118,12 +133,16 @@ def load_gift_eval_series_cached(
     return series
 
 
-def load_domain_series_cached(domain_cfg: DomainConfig, cache_dir: Path) -> list[np.ndarray]:
+def load_domain_series_cached(
+    domain_cfg: DomainConfig, cache_dir: Path
+) -> list[np.ndarray]:
     """Load all series for a domain, dispatching to the appropriate loader based on hf_repo."""
     if domain_cfg.hf_repo == GIFT_EVAL_REPO:
         series: list[np.ndarray] = []
         for ds_name in domain_cfg.datasets:
-            series.extend(load_gift_eval_series_cached(domain_cfg.hf_repo, ds_name, cache_dir))
+            series.extend(
+                load_gift_eval_series_cached(domain_cfg.hf_repo, ds_name, cache_dir)
+            )
         return series
 
     # Standard HF datasets (e.g. autogluon/chronos_datasets)

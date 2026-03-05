@@ -12,7 +12,7 @@ import typer
 from typer_config import use_config
 from data_for_tsfms.hf_utils import DomainConfig, load_domain_series_cached
 from data_for_tsfms.config_utils import yaml_conf_callback, get_loaded_config
-from transformers import TrainerCallback, TrainingArguments
+from transformers import PrinterCallback, TrainerCallback, TrainingArguments
 
 from chronos.chronos2 import (
     Chronos2CoreConfig,
@@ -297,6 +297,7 @@ def main(
             train_dataset=train_dataset,
             callbacks=[MlflowTrainLossCallback()],
         )
+        trainer.remove_callback(PrinterCallback)
 
         trainer.train()
 
